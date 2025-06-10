@@ -8,7 +8,7 @@
 
 2. **Clone 專案**：將您 fork 的專案 clone 到本地。
    ```
-   git clone https://github.com/您的用戶名/belible.git
+   git clone https://github.com/Chancecmh1019/belible.git
    ```
 
 3. **創建分支**：為您的貢獻創建一個新的分支。
