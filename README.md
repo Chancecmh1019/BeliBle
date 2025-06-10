@@ -37,7 +37,7 @@ BeliBle 是一款現代化的聖經應用程式，採用 Flutter 框架開發，
 
 1. 複製專案到本地：
    ```
-   git clone https://github.com/yourusername/belible.git
+   git clone https://github.com/Chancecmh1019/BeliBle.git
    ```
 
 2. 進入專案目錄：
@@ -57,7 +57,7 @@ BeliBle 是一款現代化的聖經應用程式，採用 Flutter 框架開發，
 
 ### 下載 APK
 
-您可以在 [Releases](https://github.com/yourusername/belible/releases) 頁面下載最新版本的 APK。
+您可以在 [Releases](https://github.com/Chancecmh1019/BeliBle/releases) 頁面下載最新版本的 APK。
 
 ## 專案結構
 
