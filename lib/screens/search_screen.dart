@@ -27,6 +27,8 @@ class _SearchScreenState extends State<SearchScreen> {
   List<SearchResult> _searchResults = [];
   bool _isSearching = false;
   String _errorMessage = '';
+  double _searchProgress = 0.0; // 搜尋進度 (0.0 - 1.0)
+  bool _searchLimitReached = false; // 是否達到搜尋結果上限
   
   // 搜尋過濾選項
   String? _testamentFilter; // 新約/舊約過濾
@@ -57,7 +59,7 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
-  // 執行搜尋
+  // 執行搜尋 - 性能優化版本
   Future<void> _performSearch(String query) async {
     if (query.trim().isEmpty) {
       setState(() {
@@ -70,15 +72,20 @@ class _SearchScreenState extends State<SearchScreen> {
 
     setState(() {
       _isSearching = true;
+      _searchProgress = 0.0; // 重置進度
       _errorMessage = '';
     });
 
     try {
+      // 設置最大結果數量限制，避免返回過多結果導致性能問題
+      const int maxResults = 100;
+      
       final results = await widget.bibleService.searchScripture(
         query,
         testamentFilter: _testamentFilter,
         bookIdFilter: _bookIdFilter,
         exactMatch: _exactMatch,
+        maxResults: maxResults,
       );
       
       // 使用 toSet().toList() 去除重複的搜索結果
@@ -87,11 +94,20 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _searchResults = uniqueResults;
         _isSearching = false;
+        _searchProgress = 1.0; // 完成進度
+        
+        // 如果結果達到上限，顯示提示訊息
+        if (uniqueResults.length >= maxResults) {
+          _searchLimitReached = true;
+        } else {
+          _searchLimitReached = false;
+        }
       });
     } catch (e) {
       setState(() {
         _searchResults = [];
         _isSearching = false;
+        _searchProgress = 0.0;
         _errorMessage = '搜尋時發生錯誤: $e';
       });
     }
@@ -248,35 +264,28 @@ class _SearchScreenState extends State<SearchScreen> {
                   child: TextField(
                     controller: _searchController,
                     decoration: InputDecoration(
-                      hintText: '輸入關鍵字搜尋經文...',
+                      hintText: '輸入關鍵字搜尋經文',
                       prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchController.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() {
-                                  _searchResults = [];
-                                });
-                              },
-                            )
-                          : null,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
                       filled: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      fillColor: Theme.of(context).colorScheme.surface,
                     ),
                     textInputAction: TextInputAction.search,
+                    onSubmitted: (value) {
+                      _performSearch(value);
+                    },
                   ),
                 ),
                 // 搜尋按鈕
                 const SizedBox(width: 12),
                 ElevatedButton(
-                  onPressed: () => _performSearch(_searchController.text),
+                  onPressed: () {
+                    _performSearch(_searchController.text);
+                  },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
                     padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -287,127 +296,191 @@ class _SearchScreenState extends State<SearchScreen> {
               ],
             ),
           ),
-          // 搜尋狀態和結果
+          
+          // 搜尋進度指示器
           if (_isSearching)
-            const Padding(
-              padding: EdgeInsets.all(32.0),
-              child: CircularProgressIndicator(),
-            )
-          else if (_errorMessage.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text(
-                _errorMessage,
-                style: const TextStyle(color: Colors.red),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  LinearProgressIndicator(
+                    value: _searchProgress,
+                    backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '正在搜尋中...',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ),
-            )
-          else
-            Expanded(
-              child: _searchResults.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _searchController.text.isEmpty ? Icons.search : Icons.search_off,
-                            size: 64,
-                            color: Theme.of(context).colorScheme.primary.withOpacity(0.5),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _searchController.text.isEmpty
-                                ? '請輸入關鍵字搜尋經文'
-                                : '沒有找到符合的結果',
-                            style: Theme.of(context).textTheme.bodyLarge,
+            ),
+          
+          // 搜尋結果或錯誤訊息
+          Expanded(
+            child: _isSearching
+                ? const Center(
+                    child: SizedBox(), // 使用空容器，因為上方已經有進度指示器
+                  )
+                : _errorMessage.isNotEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Text(
+                            _errorMessage,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontSize: 16,
+                            ),
                             textAlign: TextAlign.center,
                           ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _searchResults.length,
-                      padding: const EdgeInsets.all(16),
-                      itemBuilder: (context, index) {
-                        final result = _searchResults[index];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          elevation: 2,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: InkWell(
-                            onTap: () {
-                              // 記錄選擇的經文信息
-                              debugPrint('【導航到聖經頁面】選擇搜尋結果: ${result.book.localName} ${result.reference.chapter}:${result.verse.number}');
-                              
-                              // 獲取書卷和章節信息
-                              final book = result.book;
-                              final chapter = result.reference.chapter;
-                              final verse = result.verse.number;
-                              
-                              debugPrint('【導航】準備導航到聖經頁面: book=${book.id}, chapter=$chapter, verse=$verse');
-                              
-                              // 使用 Navigator.pop 返回上一頁
-                              Navigator.pop(context, {
-                                'book': book,
-                                'chapter': chapter,
-                                'verse': verse,
-                              });
-                              
-                              // 注意：這裡不再使用 Navigator.pushReplacement，而是返回結果給調用頁面
-                            },
-                            borderRadius: BorderRadius.circular(12),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: Theme.of(context).colorScheme.primaryContainer,
-                                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      )
+                    : _searchResults.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.search,
+                                  size: 64,
+                                  color: Theme.of(context).colorScheme.primary.withOpacity(0.5),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  _searchController.text.isEmpty
+                                      ? '請輸入關鍵字搜尋經文'
+                                      : '沒有找到符合的結果',
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          )
+                        : Column(
+                            children: [
+                              // 如果達到搜尋結果上限，顯示提示訊息
+                              if (_searchLimitReached)
+                                Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8.0),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.errorContainer.withOpacity(0.7),
+                                      borderRadius: BorderRadius.circular(8.0),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.info_outline,
+                                          color: Theme.of(context).colorScheme.onErrorContainer,
                                         ),
-                                        child: Text(
-                                          '${result.book.localName}',
-                                          style: TextStyle(
-                                            color: Theme.of(context).colorScheme.onPrimaryContainer,
-                                            fontWeight: FontWeight.bold,
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            '搜尋結果過多，僅顯示前100筆結果。請使用更精確的關鍵字或過濾選項縮小搜尋範圍。',
+                                            style: TextStyle(
+                                              color: Theme.of(context).colorScheme.onErrorContainer,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              Expanded(
+                                child: ListView.builder(
+                                  itemCount: _searchResults.length,
+                                  padding: const EdgeInsets.all(16),
+                                  itemBuilder: (context, index) {
+                                    final result = _searchResults[index];
+                                    return Card(
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      elevation: 2,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: InkWell(
+                                        onTap: () {
+                                          // 記錄選擇的經文信息
+                                          debugPrint('【導航到聖經頁面】選擇搜尋結果: ${result.book.localName} ${result.reference.chapter}:${result.verse.number}');
+                                          
+                                          // 獲取書卷和章節信息
+                                          final book = result.book;
+                                          final chapter = result.reference.chapter;
+                                          final verse = result.verse.number;
+                                          
+                                          debugPrint('【導航】準備導航到聖經頁面: book=${book.id}, chapter=$chapter, verse=$verse');
+                                          
+                                          // 使用 Navigator.pop 返回上一頁
+                                          Navigator.pop(context, {
+                                            'book': book,
+                                            'chapter': chapter,
+                                            'verse': verse,
+                                          });
+                                          
+                                          // 注意：這裡不再使用 Navigator.pushReplacement，而是返回結果給調用頁面
+                                        },
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: Theme.of(context).colorScheme.primaryContainer,
+                                                      borderRadius: BorderRadius.circular(8),
+                                                    ),
+                                                    child: Text(
+                                                      '${result.book.localName}',
+                                                      style: TextStyle(
+                                                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Text(
+                                                    '${result.reference.chapter}:${result.verse.number}',
+                                                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                                          fontWeight: FontWeight.bold,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                              ValueListenableBuilder<double>(
+                                                valueListenable: widget.fontSizeNotifier,
+                                                builder: (context, fontSize, child) {
+                                                  return VerseWidget(
+                                                    verse: result.verse,
+                                                    fontSize: fontSize,
+                                                    highlightStart: result.highlightStart,
+                                                    highlightLength: result.highlightLength,
+                                                    highlightRanges: result.highlightRanges,
+                                                  );
+                                                },
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        '${result.reference.chapter}:${result.verse.number}',
-                                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  ValueListenableBuilder<double>(
-                                    valueListenable: widget.fontSizeNotifier,
-                                    builder: (context, fontSize, child) {
-                                      return VerseWidget(
-                                        verse: result.verse,
-                                        fontSize: fontSize,
-                                        highlightStart: result.highlightStart,
-                                        highlightLength: result.highlightLength,
-                                        highlightRanges: result.highlightRanges,
-                                      );
-                                    },
-                                  ),
-                                ],
+                                    );
+                                  },
+                                ),
                               ),
-                            ),
+                            ],
                           ),
-                        );
-                      },
-                    ),
-            ),
+          ),
         ],
       ),
     );

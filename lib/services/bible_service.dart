@@ -154,8 +154,8 @@ class BibleService {
     }
   }
 
-  // 搜索經文 - 優化版本
-  Future<List<SearchResult>> searchScripture(String query, {String? testamentFilter, String? bookIdFilter, bool exactMatch = false}) async {
+  // 搜索經文 - 性能優化版本
+  Future<List<SearchResult>> searchScripture(String query, {String? testamentFilter, String? bookIdFilter, bool exactMatch = false, int maxResults = 100}) async {
     if (!_isInitialized) {
       throw Exception('聖經服務尚未初始化');
     }
@@ -187,67 +187,84 @@ class BibleService {
       filteredBooks = filteredBooks.where((book) => book.id == bookIdFilter).toList();
     }
 
-    // 使用並行處理加速搜索
-    List<Future<List<SearchResult>>> bookSearchFutures = [];
-    
+    // 使用序列處理而非並行處理，避免創建過多的 Future
     for (Book book in filteredBooks) {
-      bookSearchFutures.add(_searchInBook(book, normalizedQuery, queryWords, exactMatch));
-    }
-    
-    // 等待所有書卷的搜索完成並合併結果
-    List<List<SearchResult>> allResults = await Future.wait(bookSearchFutures);
-    for (var bookResults in allResults) {
+      // 檢查是否已達到最大結果數
+      if (results.length >= maxResults) break;
+      
+      // 在單本書卷中搜索
+      List<SearchResult> bookResults = await _searchInBook(
+        book, 
+        normalizedQuery, 
+        queryWords, 
+        exactMatch, 
+        maxResults - results.length
+      );
+      
       results.addAll(bookResults);
     }
 
     return results;
   }
   
-  // 在單本書卷中搜索 - 用於並行處理
-  Future<List<SearchResult>> _searchInBook(Book book, String normalizedQuery, List<String> queryWords, bool exactMatch) async {
+  // 在單本書卷中搜索 - 優化版本
+  Future<List<SearchResult>> _searchInBook(Book book, String normalizedQuery, List<String> queryWords, bool exactMatch, int maxResults) async {
     List<SearchResult> results = [];
     
-    // 使用並行處理加速章節搜索
-    List<Future<List<SearchResult>>> chapterSearchFutures = [];
-    
+    // 使用序列處理而非並行處理
     for (int i = 1; i <= _getBookChapterCount(book.id); i++) {
-      chapterSearchFutures.add(_searchInChapter(book, i, normalizedQuery, queryWords, exactMatch));
-    }
-    
-    // 等待所有章節的搜索完成並合併結果
-    List<List<SearchResult>> allResults = await Future.wait(chapterSearchFutures);
-    for (var chapterResults in allResults) {
+      // 檢查是否已達到最大結果數
+      if (results.length >= maxResults) break;
+      
+      // 在單個章節中搜索
+      List<SearchResult> chapterResults = await _searchInChapter(
+        book, 
+        i, 
+        normalizedQuery, 
+        queryWords, 
+        exactMatch, 
+        maxResults - results.length
+      );
+      
       results.addAll(chapterResults);
     }
     
     return results;
   }
   
-  // 在單個章節中搜索 - 用於並行處理
-  Future<List<SearchResult>> _searchInChapter(Book book, int chapterNumber, String normalizedQuery, List<String> queryWords, bool exactMatch) async {
+  // 在單個章節中搜索 - 優化版本
+  Future<List<SearchResult>> _searchInChapter(Book book, int chapterNumber, String normalizedQuery, List<String> queryWords, bool exactMatch, int maxResults) async {
     List<SearchResult> results = [];
     
     Chapter? chapter = await getChapter(book.id, chapterNumber);
     if (chapter == null) return results;
     
+    // 預先計算一些常用值，避免重複計算
+    bool isMultiWordQuery = queryWords.length > 1;
+    bool isShortQuery = queryWords.length <= 3;
+    
     for (Verse verse in chapter.verses) {
-      bool matches = false;
+      // 檢查是否已達到最大結果數
+      if (results.length >= maxResults) break;
+      
+      // 將經文文本轉為小寫，只做一次
       String verseTextLower = verse.text.toLowerCase();
+      bool matches = false;
       
       if (exactMatch) {
-        // 精確匹配
-        matches = verseTextLower == normalizedQuery ||
+        // 精確匹配 - 簡化邏輯
+        matches = verseTextLower == normalizedQuery || 
                  verseTextLower.split(RegExp(r'\s+')).contains(normalizedQuery);
       } else {
-        // 模糊匹配 - 整個查詢字符串
+        // 模糊匹配 - 先檢查完整查詢字符串
         if (verseTextLower.contains(normalizedQuery)) {
           matches = true;
-        } else if (queryWords.length > 1) {
+        } else if (isMultiWordQuery) {
           // 分詞搜尋 - 必須包含所有查詢單詞
           matches = true;
           for (String word in queryWords) {
             // 只匹配長度>=2的詞，或者是用戶明確輸入的單個字符
-            if ((word.length >= 2 || queryWords.length <= 3) && !verseTextLower.contains(word)) {
+            if ((word.length >= 2 || isShortQuery) && !verseTextLower.contains(word)) {
               matches = false;
               break;
             }
@@ -256,7 +273,7 @@ class BibleService {
       }
       
       if (matches) {
-        // 創建帶有高亮信息的搜尋結果
+        // 創建帶有高亮信息的搜尋結果 - 優化高亮處理邏輯
         int? startIndex;
         int? highlightLength;
         String matchedText = normalizedQuery;
@@ -271,19 +288,20 @@ class BibleService {
             'start': startIndex,
             'length': highlightLength,
           });
-        } else if (queryWords.length > 1) {
+        } else if (isMultiWordQuery) {
           // 如果找不到完整匹配，但有多個關鍵詞，找出所有匹配的關鍵詞
           bool foundFirstWord = false;
           
           // 對於每個關鍵詞，查找所有匹配位置並高亮
           for (String word in queryWords) {
             // 只處理有效的關鍵詞（長度>=2或者是用戶明確輸入的短詞）
-            if (word.length >= 2 || queryWords.length <= 3) {
-              // 查找所有匹配的位置
+            if (word.length >= 2 || isShortQuery) {
+              // 查找所有匹配的位置 - 限制最多找5個匹配位置，避免過多處理
               int wordIndex = 0;
-              bool foundCurrentWord = false;
+              int matchCount = 0;
+              final int maxMatchesPerWord = 5;
               
-              while (true) {
+              while (matchCount < maxMatchesPerWord) {
                 int index = verseTextLower.indexOf(word, wordIndex);
                 if (index == -1) break; // 沒有更多匹配
                 
@@ -292,9 +310,6 @@ class BibleService {
                   'start': index,
                   'length': word.length,
                 });
-                
-                // 標記已找到當前關鍵詞
-                foundCurrentWord = true;
                 
                 // 如果這是第一個找到的單詞，也設置舊版兼容的高亮
                 if (!foundFirstWord) {
@@ -306,6 +321,7 @@ class BibleService {
                 
                 // 移動到下一個可能的匹配位置
                 wordIndex = index + word.length;
+                matchCount++;
               }
             }
           }
