@@ -17,15 +17,6 @@ BeliBle 是一款現代化的聖經應用程式，採用 Flutter 框架開發，
 - **閱讀歷史**：自動記錄閱讀歷史，方便繼續閱讀
 - **個人化設定**：調整字體大小、選擇淺色/深色主題
 
-## 截圖
-
-<p align="center">
-  <img src="screenshots/home_screen.png" alt="首頁" width="200"/>
-  <img src="screenshots/reading_screen.png" alt="閱讀頁面" width="200"/>
-  <img src="screenshots/search_screen.png" alt="搜尋頁面" width="200"/>
-  <img src="screenshots/settings_screen.png" alt="設定頁面" width="200"/>
-</p>
-
 ## 安裝與執行
 
 ### 系統需求
