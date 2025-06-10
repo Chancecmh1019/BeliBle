@@ -1,0 +1,20 @@
+# 這個文件定義了代碼庫的所有者和審查者
+# 每次有人開啟拉取請求時，會自動請求這些所有者進行審查
+# 更多信息：https://help.github.com/articles/about-codeowners/
+
+# 這些所有者將是整個代碼庫的默認所有者
+* @yourusername
+
+# 特定目錄和文件的所有者
+/lib/ @yourusername
+/assets/ @yourusername
+/android/ @yourusername
+/ios/ @yourusername
+
+# 文檔相關文件
+*.md @yourusername
+/docs/ @yourusername
+
+# 構建和配置文件
+pubspec.yaml @yourusername
+/.github/ @yourusername
